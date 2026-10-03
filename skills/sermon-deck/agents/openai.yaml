@@ -1,0 +1,4 @@
+interface:
+  display_name: "Презентация к проповеди"
+  short_description: "Слайды из PDF-конспекта с полными заметками пастора"
+  default_prompt: "Используй $sermon-deck, чтобы собрать PPTX и PDF из моего конспекта проповеди."

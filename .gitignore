@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+.venv/
+.DS_Store
+Thumbs.db
+.env
+.env.*
+render/
+_deck_logo.png
+*.pdf
+*.pptx
+!skills/*/assets/*.pptx

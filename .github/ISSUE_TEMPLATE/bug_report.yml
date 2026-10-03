@@ -1,0 +1,23 @@
+name: Ошибка
+description: Сообщить о проблеме со скиллом
+body:
+  - type: input
+    id: skill
+    attributes:
+      label: Скилл и ассистент
+      placeholder: sermon-deck, Claude Code / Codex
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Что произошло и что ожидалось
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Как повторить
+      description: Укажите ОС и команды. Не прикладывайте личные конспекты и секреты.
+    validations:
+      required: true
