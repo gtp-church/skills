@@ -4,7 +4,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 Скиллы для церковного служения от [gtp-church](https://github.com/gtp-church).
-Работают с Claude Code и Codex по открытому стандарту [Agent Skills](https://agentskills.io).
+Используют открытый стандарт [Agent Skills](https://agentskills.io) и подходят для
+совместимых AI-ассистентов, включая Claude Code и Codex.
 
 ## Что есть
 
@@ -12,21 +13,32 @@
 | --- | --- |
 | [sermon-deck](skills/sermon-deck/SKILL.md) | Презентация к проповеди из PDF: чёрный фон, крупный текст, стихи Писания, полный конспект в заметках докладчика. PPTX и PDF для показа. |
 
-![Пример титульного слайда](docs/images/sermon-deck.png)
-
 Шаблон, логотип и метрики шрифтов входят в пакет. Папка с прошлыми презентациями необязательна.
 
 ## Установка за минуту
 
-Понадобятся [Node.js LTS](https://nodejs.org/) (включает `npx`) и установленный Claude Code или Codex.
+Понадобятся [Node.js LTS](https://nodejs.org/) (включает `npx`) и ассистент с поддержкой скиллов.
 Выполните в терминале:
 
 ```bash
-npx skills add gtp-church/skills --skill sermon-deck --agent claude-code codex --global
+npx skills add gtp-church/skills --global --all
 ```
 
-Подтвердите установку и откройте новую сессию ассистента. Скилл будет доступен во всех проектах.
-Если используете только один ассистент, оставьте после `--agent` только `claude-code` или `codex`.
+Команда устанавливает все скиллы репозитория глобально для всех агентов,
+которых поддерживает `npx skills`, без выбора и подтверждений. Откройте новую сессию
+ассистента — скиллы будут доступны во всех проектах на этой машине.
+
+Claude Code поддерживает такую установку: CLI создаёт запись в `~/.claude/skills/`,
+которая ссылается на общую папку скилла. См. [документацию Claude Code](https://code.claude.com/docs/en/skills#where-skills-live).
+
+Чтобы установить только `sermon-deck` для всех поддерживаемых агентов:
+
+```bash
+npx skills add gtp-church/skills --skill sermon-deck --global --agent '*' --yes
+```
+
+Можно также выполнить `npx skills add gtp-church/skills --global` без выбора агента
+в команде: CLI определит установленных агентов и при необходимости предложит выбор.
 Для установки только в текущий проект выполните команду в его папке без `--global`.
 
 Проверка и обновление:
@@ -37,7 +49,7 @@ npx skills update sermon-deck --global
 ```
 
 Синтаксис и дополнительные варианты: [документация npx skills](https://github.com/vercel-labs/skills#install-a-skill).
-Это установка для **Claude Code** и **Codex**; команда не загружает скилл в веб-чат Claude.
+Глобальная установка действует на этой машине; команда не загружает скиллы в веб-чат Claude или Cowork.
 
 ## Как пользоваться
 
