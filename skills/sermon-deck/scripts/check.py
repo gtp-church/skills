@@ -15,9 +15,12 @@ import os
 import subprocess
 import shutil
 import sys
+import xml.etree.ElementTree as ET
 
 from pptx import Presentation
 from pptx.util import Emu
+from packagecheck import package_problems
+from typography import trailing_preposition
 
 def find_soffice():
     """LibreOffice from PATH, an explicit override, or its macOS app bundle."""
@@ -38,7 +41,7 @@ LOGO_TOP_IN = 6.71          # выше этой линии должен зака
 
 def audit(path):
     prs = Presentation(path)
-    problems = []
+    problems = package_problems(path)
     for i, slide in enumerate(prs.slides, 1):
         names = [sh.name for sh in slide.shapes]
         if not any(n.startswith('Rectangle 9') for n in names):
@@ -52,6 +55,11 @@ def audit(path):
         for sh in slide.shapes:
             if not (sh.has_text_frame and sh.text_frame.text.strip()):
                 continue
+            if 'ё' in sh.text.lower():
+                problems.append(f'слайд {i}, «{sh.name}»: на экране есть ё')
+            for line in sh.text.splitlines()[:-1]:
+                if trailing_preposition(line):
+                    problems.append(f'слайд {i}, «{sh.name}»: висячий предлог перед явным переносом')
             bottom = Emu(sh.top).inches + Emu(sh.height).inches
             if bottom > 7.1:
                 problems.append(f'слайд {i}, «{sh.name}»: текст уходит вниз до {bottom:.2f}"')
@@ -70,14 +78,36 @@ def render(path, outdir):
     return pdf
 
 
+def audit_rendered_text(pdf):
+    """Check real line endings after rendering, including automatic wraps."""
+    result = subprocess.run(['pdftotext', '-bbox-layout', pdf, '-'],
+                            text=True, capture_output=True, check=True)
+    root = ET.fromstring(result.stdout)
+    problems = []
+    for i, page in enumerate(root.findall('.//{*}page'), 1):
+        for line in page.findall('.//{*}line'):
+            text = ' '.join(word.text or '' for word in line.findall('{*}word'))
+            if trailing_preposition(text):
+                problems.append(f'PDF, слайд {i}: висячий предлог в строке «{text}»')
+    return problems
+
+
 def main():
     path = sys.argv[1]
     outdir = sys.argv[2] if len(sys.argv) > 2 else 'render'
+    package_errors = package_problems(path)
+    if package_errors:
+        print('ошибки пакета PPTX:\n  ' + '\n  '.join(package_errors), file=sys.stderr)
+        return 1
     prs, problems = audit(path)
     print(f'{len(prs.slides)} слайдов')
     print('замечания:', '\n  ' + '\n  '.join(problems) if problems else 'нет')
     try:
         pdf = render(path, outdir)
+        rendered_problems = audit_rendered_text(pdf)
+        problems.extend(rendered_problems)
+        if rendered_problems:
+            print('переносы в PDF:\n  ' + '\n  '.join(rendered_problems))
         pages = len([f for f in os.listdir(outdir) if f.startswith('s-')])
         print(f'рендер: {pdf} ({pages} страниц)')
         print('Посмотри PNG в этой папке — особенно разделители и самые длинные')

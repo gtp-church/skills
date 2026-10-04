@@ -41,7 +41,7 @@ class PackagingTests(unittest.TestCase):
                 cwd=tmp, text=True, capture_output=True, check=True)
             prs, problems = check.audit(output)
             self.assertEqual(problems, [])
-            self.assertEqual(len(prs.slides), 13)
+            self.assertEqual(len(prs.slides), 11)
             self.assertIn('не попало в заметки: ничего', result.stdout)
             self.assertIn('продублировано: ничего', result.stdout)
             self.assertFalse((Path(tmp) / '_deck_logo.png').exists())
@@ -71,11 +71,11 @@ class PackagingTests(unittest.TestCase):
                     check.find_soffice()
 
     def test_failed_render_and_invalid_deck_fail_check(self):
-        with patch('sys.argv', ['check.py', 'unused.pptx']):
+        with patch('sys.argv', ['check.py', 'unused.pptx']), patch('check.package_problems', return_value=[]):
             with patch('check.audit', return_value=(Presentation(), [])), patch('check.render', side_effect=FileNotFoundError('missing renderer')):
                 self.assertEqual(check.main(), 1)
             with tempfile.TemporaryDirectory() as tmp:
-                with patch('check.audit', return_value=(Presentation(), ['missing notes'])), patch('check.render', return_value='test.pdf'):
+                with patch('check.audit', return_value=(Presentation(), ['missing notes'])), patch('check.render', return_value='test.pdf'), patch('check.audit_rendered_text', return_value=[]):
                     with patch('sys.argv', ['check.py', 'unused.pptx', tmp]):
                         self.assertEqual(check.main(), 1)
 

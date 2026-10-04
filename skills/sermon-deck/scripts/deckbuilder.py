@@ -2,9 +2,9 @@
 """Сборка презентации проповеди в фирменном стиле.
 
 Всё делается через API python-pptx: библиотека сама собирает пакет
-(Content_Types, связи, presentation.xml). Писать XML слайдов строками нельзя —
-LibreOffice такое открывает, а PowerPoint предлагает «Repair», и локально это
-не отлаживается.
+(Content_Types, связи, presentation.xml). Писать XML слайдов строками нельзя.
+Шаблон и результат проверяются также на ошибки пакета: API сохраняет
+повреждённые метаданные шаблона, включая необъявленные QName-префиксы.
 
 Пример:
 
@@ -29,10 +29,14 @@ from pptx.oxml.ns import qn
 from pptx.util import Emu, Pt
 
 from textmetrics import longest_word_pt, wrap_lines
+from packagecheck import require_valid_package
+from typography import display_text
 
 EMU = 914400
 PT = EMU / 72
 LINE = 1.213          # множитель высоты строки, выверен по слайдам шаблона
+LEADING = 1.05        # основной текст и цитаты
+HEADING_LEADING = 0.88  # крупные заголовки: строки связаны, выносные не пересекаются
 INSETS = 7.2          # верхнее + нижнее поле надписи, пункты
 
 AKROBAT, HEADING, HEADING_XB, INTRO = (
@@ -120,6 +124,7 @@ def newest_template(folder=None):
 class Deck:
     def __init__(self, template=None):
         template = template or newest_template()
+        require_valid_package(template)
         self.template = template
         self.prs = Presentation(template)
         for sld in list(self.prs.slides._sldIdLst):        # убрать слайды шаблона
@@ -156,6 +161,14 @@ class Deck:
 
     @staticmethod
     def _run(p, text, font, size, color, bold=False):
+        text = display_text(text)
+        if '\n' in text:
+            chunks = text.split('\n')
+            for i, chunk in enumerate(chunks):
+                if i:
+                    p.add_line_break()
+                r = Deck._run(p, chunk, font, size, color, bold)
+            return r
         r = p.add_run()
         r.text = text
         r.font.name = font
@@ -214,29 +227,46 @@ class Deck:
             r.text = blk.strip()
             r.font.size = Pt(14)
 
+    def _quote_decoration(self, slide, x, y):
+        """Два угловатых штриха как в образце; без зависимости от шрифта."""
+        # Native editable polygons preserve the straight Gilroy-style edges in
+        # both PowerPoint and PDF. Both strokes fit fully inside the slide.
+        points = ((127, 0), (200, 0), (54, 246), (0, 246))
+        builder = slide.shapes.build_freeform(*points[0], scale=EMU / 100)
+        builder.add_line_segments(points[1:])
+        builder.move_to(points[0][0] + 151, points[0][1])
+        builder.add_line_segments([(px + 151, py) for px, py in points[1:]])
+        sh = builder.convert_to_shape(int(x * EMU), int(y * EMU))
+        sh.name = 'Quote decoration'
+        sh.fill.solid()
+        sh.fill.fore_color.rgb = RGBColor(0x3D, 0x3D, 0x3D)
+        sh.line.fill.background()
+        sh.shadow.inherit = False
+
     # --- типы слайдов ------------------------------------------------------
-    def title(self, lines, notes='', font=HEADING):
+    def title(self, lines, notes='', font=HEADING, leading=HEADING_LEADING):
         """lines: [(текст, кегль, 'yellow'|'white')] — по строке на абзац."""
         s = self._slide()
         self._logo_on(s)
-        cy = block_h([(1, sz, 0.9, 0) for _, sz, _ in lines])
+        cy = block_h([(1, sz, leading, 0) for _, sz, _ in lines])
         tf = self._box(s, 0, (SLIDE_H - cy) // 2, SLIDE_W - 1, cy, 'TextBox 3')
         for i, (t, sz, col) in enumerate(lines):
-            p = self._para(tf, i == 0, align=PP_ALIGN.CENTER, lnsp=0.9)
+            p = self._para(tf, i == 0, align=PP_ALIGN.CENTER, lnsp=leading)
             self._run(p, t, font, sz, col)
         self._notes(s, notes)
         return s
 
-    def divider(self, numeral, heading, notes='', center_in=5.28):
+    def divider(self, numeral, heading, notes='', center_in=4.80,
+                leading=HEADING_LEADING):
         """Разделитель: римская цифра в жёлтом круге + крупный заголовок."""
         s = self._slide()
         size = fit_size(heading, AKROBAT, HEAD_CX, [115, 105, 96, 88, 80], 2)
-        cy = block_h([(nlines(heading, AKROBAT, size, HEAD_CX), size, 0.8, 0)])
+        cy = block_h([(nlines(heading, AKROBAT, size, HEAD_CX), size, leading, 0)])
         tf = self._box(s, HEAD_X, center_in * EMU - cy / 2, HEAD_CX, cy)
-        self._run(self._para(tf, True, lnsp=0.8), heading, AKROBAT, size, WHITE, bold=True)
+        self._run(self._para(tf, True, lnsp=leading), heading, AKROBAT, size, WHITE, bold=True)
 
-        nsize = next((n for n in (115, 105, 96, 88, 80, 72)
-                      if longest_word_pt(numeral, INTRO, n) <= avail_pt(NUM_CX)), 72)
+        nsize = next((n for n in (115, 105, 96, 88, 80, 72, 64, 60)
+                      if longest_word_pt(numeral, INTRO, n) <= avail_pt(NUM_CX)), 60)
         nh = block_h([(1, nsize, 1.0, 0)])
         ntf = self._box(s, NUM_X, CIRCLE[1] + CIRCLE[3] / 2 - nh / 2, NUM_CX, nh, 'TextBox 3')
         self._run(self._para(ntf, True, align=PP_ALIGN.CENTER), numeral, INTRO, nsize, YELLOW)
@@ -267,29 +297,32 @@ class Deck:
             size = 44
             for cand in (60, 54, 48, 44):
                 nls = [nlines(t, AKROBAT, cand, BODY_CX, MARL) for t in ref]
-                h = block_h([(n, cand, 0.9, aft) for n in nls]) / EMU
+                h = block_h([(n, cand, LEADING, aft) for n in nls]) / EMU
                 if (max(nls) <= 2 and h <= limit
                         and all(word_fits(t, AKROBAT, cand, BODY_CX, MARL) for t in ref)):
                     size = cand
                     break
-        cy = block_h([(nlines(t, AKROBAT, size, BODY_CX, MARL), size, 0.9, aft) for t in items])
+        cy = block_h([(nlines(t, AKROBAT, size, BODY_CX, MARL), size, LEADING, aft) for t in items])
         y = top_in * EMU if top_in is not None else center_in * EMU - cy / 2
         tf = self._box(s, BODY_X, y, BODY_CX, cy)
         for i, t in enumerate(items):
-            p = self._para(tf, i == 0, lnsp=0.9, aft=aft, number=True)
+            p = self._para(tf, i == 0, lnsp=LEADING, aft=aft, number=True)
             self._run(p, t, AKROBAT, size, WHITE, bold=True)
         self._logo_on(s)
         self._eyebrow(s, section)
         self._notes(s, notes)
         return size
 
-    def statement(self, text, accent=None, notes='', center_in=3.75):
+    def statement(self, text, accent=None, notes='', center_in=3.75,
+                  leading=HEADING_LEADING):
         """Одна крупная мысль на весь слайд; accent — часть строки жёлтым."""
         s = self._slide()
+        text = display_text(text)
+        accent = display_text(accent) if accent else None
         size = fit_size(text, AKROBAT, HEAD_CX, [115, 105, 96, 88, 80, 72], 3)
-        cy = block_h([(nlines(text, AKROBAT, size, HEAD_CX), size, 0.8, 0)])
+        cy = block_h([(nlines(text, AKROBAT, size, HEAD_CX), size, leading, 0)])
         tf = self._box(s, HEAD_X, center_in * EMU - cy / 2, HEAD_CX, cy)
-        p = self._para(tf, True, lnsp=0.8)
+        p = self._para(tf, True, lnsp=leading)
         if accent and accent in text:
             i = text.index(accent)
             for chunk, col in ((text[:i], WHITE), (accent, YELLOW), (text[i + len(accent):], WHITE)):
@@ -306,18 +339,37 @@ class Deck:
         """Плашка («ВАЖНО!», «ОСТОРОЖНО!») и развёрнутая мысль под ней."""
         s = self._slide()
         size = fit_size(text, AKROBAT, BODY_CX, list(sizes), 4)
-        cy = block_h([(nlines(text, AKROBAT, size, BODY_CX), size, 0.9, 0)])
+        cy = block_h([(nlines(text, AKROBAT, size, BODY_CX), size, LEADING, 0)])
         tf = self._box(s, BODY_X, center_in * EMU - cy / 2, BODY_CX, cy)
-        self._run(self._para(tf, True, lnsp=0.9), text, AKROBAT, size, WHITE, bold=True)
+        self._run(self._para(tf, True, lnsp=LEADING), text, AKROBAT, size, WHITE, bold=True)
         self._logo_on(s)
         self._eyebrow(s, section)
         self._notes(s, notes)
         return s
 
     def verse(self, reference, text, notes=''):
-        """Слайд с текстом Писания: ссылка на плашке, стих крупно."""
-        return self.callout(reference, '«' + text.strip('«».') + '»', notes=notes,
-                            sizes=(60, 54, 48, 44, 40))
+        """Цитата: серые кавычки на фоне, белый текст, жёлтая ссылка внизу."""
+        s = self._slide()
+        for x, y in ((0.03, 0.68), (9.77, 4.00)):
+            self._quote_decoration(s, x, y)
+        text = text.strip().removeprefix('«').removesuffix('»')
+        size = next((candidate for candidate in (60, 54, 48, 44, 40)
+                     if word_fits(text, AKROBAT, candidate, BODY_CX)
+                     and nlines(text, AKROBAT, candidate, BODY_CX) <= 5
+                     and block_h([(nlines(text, AKROBAT, candidate, BODY_CX),
+                                   candidate, LEADING, 0)]) <= 4.6 * EMU), None)
+        if size is None:
+            raise ValueError('Цитата слишком длинная: раздели её по смыслу на два слайда')
+        cy = block_h([(nlines(text, AKROBAT, size, BODY_CX), size, LEADING, 0)])
+        tf = self._box(s, BODY_X, 3.3 * EMU - cy / 2, BODY_CX, cy, 'Quote text')
+        self._run(self._para(tf, True, lnsp=LEADING), text, AKROBAT, size, WHITE, bold=True)
+        tf = self._box(s, 3.0 * EMU, 5.55 * EMU, 8.9 * EMU,
+                       block_h([(1, 44, LEADING, 0)]), 'Quote reference')
+        self._run(self._para(tf, True, align=PP_ALIGN.RIGHT, lnsp=LEADING),
+                  reference, AKROBAT, 44, YELLOW, bold=True)
+        self._logo_on(s)
+        self._notes(s, notes)
+        return s
 
     def poem(self, lines, attribution, notes=''):
         """Куплет гимна: строки по центру, ниже — автор."""
@@ -349,4 +401,5 @@ class Deck:
         if os.path.exists(path):
             os.remove(path)
         self.prs.save(path)
+        require_valid_package(path)
         return path

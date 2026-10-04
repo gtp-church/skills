@@ -7,6 +7,9 @@
 """
 import json
 import os
+import re
+
+from typography import display_text
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _METRICS_PATH = os.path.join(_HERE, '..', 'assets', 'font_metrics.json')
@@ -48,20 +51,21 @@ def text_width_pt(text, font, size_pt):
     """Ширина одной строки в пунктах. Кернинг не учитываем — запас его перекрывает."""
     w = _widths(font)
     fallback = w.get('о', 0.5)
-    return sum(w.get(ch, fallback) for ch in text) * size_pt
+    return sum(w.get(' ' if ch == '\u00a0' else ch, fallback) for ch in text) * size_pt
 
 
 def wrap_lines(text, font, size_pt, avail_pt):
-    """Жадный перенос по пробелам — так же, как это делает PowerPoint."""
-    lines, cur = [], ''
-    for word in text.split(' '):
-        trial = word if not cur else cur + ' ' + word
-        if text_width_pt(trial, font, size_pt) <= avail_pt or not cur:
-            cur = trial
-        else:
-            lines.append(cur)
-            cur = word
-    if cur:
+    """Перенос с учётом неразрывных пробелов и явных переводов строки."""
+    lines = []
+    for paragraph in display_text(text).split('\n'):
+        cur = ''
+        for word in paragraph.split(' '):
+            trial = word if not cur else cur + ' ' + word
+            if text_width_pt(trial, font, size_pt) <= avail_pt or not cur:
+                cur = trial
+            else:
+                lines.append(cur)
+                cur = word
         lines.append(cur)
     return lines
 
@@ -72,4 +76,5 @@ def n_lines(text, font, size_pt, avail_pt):
 
 def longest_word_pt(text, font, size_pt):
     """Слово шире строки PowerPoint разрывает посередине — это надо ловить заранее."""
-    return max(text_width_pt(w, font, size_pt) for w in text.split(' ') if w)
+    return max((text_width_pt(w, font, size_pt)
+                for w in re.split(r'[ \n\v]', display_text(text)) if w), default=0)
