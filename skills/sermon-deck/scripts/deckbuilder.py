@@ -35,7 +35,8 @@ from typography import display_text
 EMU = 914400
 PT = EMU / 72
 LINE = 1.213          # множитель высоты строки, выверен по слайдам шаблона
-LEADING = 1.05        # запас между строками для нижних выносных элементов
+LEADING = 1.05        # основной текст и цитаты
+HEADING_LEADING = 0.88  # крупные заголовки: строки связаны, выносные не пересекаются
 INSETS = 7.2          # верхнее + нижнее поле надписи, пункты
 
 AKROBAT, HEADING, HEADING_XB, INTRO = (
@@ -226,26 +227,43 @@ class Deck:
             r.text = blk.strip()
             r.font.size = Pt(14)
 
+    def _quote_decoration(self, slide, x, y):
+        """Два угловатых штриха как в образце; без зависимости от шрифта."""
+        # Native editable polygons preserve the straight Gilroy-style edges in
+        # both PowerPoint and PDF. Both strokes fit fully inside the slide.
+        points = ((127, 0), (200, 0), (54, 246), (0, 246))
+        builder = slide.shapes.build_freeform(*points[0], scale=EMU / 100)
+        builder.add_line_segments(points[1:])
+        builder.move_to(points[0][0] + 151, points[0][1])
+        builder.add_line_segments([(px + 151, py) for px, py in points[1:]])
+        sh = builder.convert_to_shape(int(x * EMU), int(y * EMU))
+        sh.name = 'Quote decoration'
+        sh.fill.solid()
+        sh.fill.fore_color.rgb = RGBColor(0x3D, 0x3D, 0x3D)
+        sh.line.fill.background()
+        sh.shadow.inherit = False
+
     # --- типы слайдов ------------------------------------------------------
-    def title(self, lines, notes='', font=HEADING):
+    def title(self, lines, notes='', font=HEADING, leading=HEADING_LEADING):
         """lines: [(текст, кегль, 'yellow'|'white')] — по строке на абзац."""
         s = self._slide()
         self._logo_on(s)
-        cy = block_h([(1, sz, LEADING, 0) for _, sz, _ in lines])
+        cy = block_h([(1, sz, leading, 0) for _, sz, _ in lines])
         tf = self._box(s, 0, (SLIDE_H - cy) // 2, SLIDE_W - 1, cy, 'TextBox 3')
         for i, (t, sz, col) in enumerate(lines):
-            p = self._para(tf, i == 0, align=PP_ALIGN.CENTER, lnsp=LEADING)
+            p = self._para(tf, i == 0, align=PP_ALIGN.CENTER, lnsp=leading)
             self._run(p, t, font, sz, col)
         self._notes(s, notes)
         return s
 
-    def divider(self, numeral, heading, notes='', center_in=4.80):
+    def divider(self, numeral, heading, notes='', center_in=4.80,
+                leading=HEADING_LEADING):
         """Разделитель: римская цифра в жёлтом круге + крупный заголовок."""
         s = self._slide()
         size = fit_size(heading, AKROBAT, HEAD_CX, [115, 105, 96, 88, 80], 2)
-        cy = block_h([(nlines(heading, AKROBAT, size, HEAD_CX), size, LEADING, 0)])
+        cy = block_h([(nlines(heading, AKROBAT, size, HEAD_CX), size, leading, 0)])
         tf = self._box(s, HEAD_X, center_in * EMU - cy / 2, HEAD_CX, cy)
-        self._run(self._para(tf, True, lnsp=LEADING), heading, AKROBAT, size, WHITE, bold=True)
+        self._run(self._para(tf, True, lnsp=leading), heading, AKROBAT, size, WHITE, bold=True)
 
         nsize = next((n for n in (115, 105, 96, 88, 80, 72, 64, 60)
                       if longest_word_pt(numeral, INTRO, n) <= avail_pt(NUM_CX)), 60)
@@ -295,15 +313,16 @@ class Deck:
         self._notes(s, notes)
         return size
 
-    def statement(self, text, accent=None, notes='', center_in=3.75):
+    def statement(self, text, accent=None, notes='', center_in=3.75,
+                  leading=HEADING_LEADING):
         """Одна крупная мысль на весь слайд; accent — часть строки жёлтым."""
         s = self._slide()
         text = display_text(text)
         accent = display_text(accent) if accent else None
         size = fit_size(text, AKROBAT, HEAD_CX, [115, 105, 96, 88, 80, 72], 3)
-        cy = block_h([(nlines(text, AKROBAT, size, HEAD_CX), size, LEADING, 0)])
+        cy = block_h([(nlines(text, AKROBAT, size, HEAD_CX), size, leading, 0)])
         tf = self._box(s, HEAD_X, center_in * EMU - cy / 2, HEAD_CX, cy)
-        p = self._para(tf, True, lnsp=LEADING)
+        p = self._para(tf, True, lnsp=leading)
         if accent and accent in text:
             i = text.index(accent)
             for chunk, col in ((text[:i], WHITE), (accent, YELLOW), (text[i + len(accent):], WHITE)):
@@ -331,12 +350,8 @@ class Deck:
     def verse(self, reference, text, notes=''):
         """Цитата: серые кавычки на фоне, белый текст, жёлтая ссылка внизу."""
         s = self._slide()
-        # Editable glyphs from an already embedded font. Their intentional crop
-        # is decorative; the quote text and its reference stay inside the slide.
-        for x, y in ((-2.846, -2.356), (7.059, 0.976)):
-            tf = self._box(s, x * EMU, y * EMU, 6 * EMU, 12 * EMU, 'Quote decoration')
-            tf.auto_size = MSO_AUTO_SIZE.NONE
-            self._run(tf.paragraphs[0], '”', 'Calibri', 857, RGBColor(0x3D, 0x3D, 0x3D))
+        for x, y in ((0.03, 0.68), (9.77, 4.00)):
+            self._quote_decoration(s, x, y)
         text = text.strip().removeprefix('«').removesuffix('»')
         size = next((candidate for candidate in (60, 54, 48, 44, 40)
                      if word_fits(text, AKROBAT, candidate, BODY_CX)

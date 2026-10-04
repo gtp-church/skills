@@ -55,8 +55,6 @@ def audit(path):
         for sh in slide.shapes:
             if not (sh.has_text_frame and sh.text_frame.text.strip()):
                 continue
-            if sh.name == 'Quote decoration':
-                continue
             if 'ё' in sh.text.lower():
                 problems.append(f'слайд {i}, «{sh.name}»: на экране есть ё')
             for line in sh.text.splitlines()[:-1]:

@@ -5,6 +5,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from pptx import Presentation
+
 SKILL = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SKILL / 'scripts'))
 
@@ -58,6 +60,47 @@ class TypographyTests(unittest.TestCase):
     def test_oversized_quote_requires_meaningful_split(self):
         with self.assertRaisesRegex(ValueError, 'раздели'):
             Deck().verse('Ссылка', 'Очень длинный текст ' * 100, notes='Источник')
+
+    def test_headings_stay_compact_without_changing_body_leading(self):
+        deck = Deck()
+        text = 'ВЕРУЮЩИЙ СОЕДИНЕН\nСО ХРИСТОМ'
+        compact = deck.statement(text, notes='Источник')
+        spaced = deck.statement(text, notes='Источник', leading=1.05)
+        divider = deck.divider('I', 'ПРАВЕДНОСТЬ\nВ ВЕТХОМ ЗАВЕТЕ', notes='Источник')
+        title = deck.title([('ПЕРВАЯ', 96, 'yellow'), ('ВТОРАЯ', 96, 'white')], notes='Источник')
+        verse = deck.verse('Римлянам 8:1', 'Итак нет ныне никакого осуждения', notes='Источник')
+        compact_box, spaced_box = compact.shapes[1], spaced.shapes[1]
+        self.assertLess(compact_box.height, spaced_box.height)
+        self.assertAlmostEqual(compact_box.top + compact_box.height / 2,
+                               spaced_box.top + spaced_box.height / 2, delta=1)
+        for box in (compact_box, divider.shapes[1], title.shapes[2]):
+            self.assertTrue(all(p.line_spacing < 1 for p in box.text_frame.paragraphs))
+        quote_text = next(sh for sh in verse.shapes if sh.name == 'Quote text')
+        self.assertEqual(quote_text.text_frame.paragraphs[0].line_spacing, 1.05)
+
+    def test_both_angular_quote_strokes_survive_save_without_a_font(self):
+        deck = Deck()
+        deck.verse('Иоанна 1:12', 'А тем, которые приняли Его', notes='Источник')
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'quotes.pptx'
+            deck.save(path)
+            slide = Presentation(path).slides[0]
+            decorations = [sh for sh in slide.shapes if sh.name == 'Quote decoration']
+            self.assertEqual(len(decorations), 2)
+            for sh in decorations:
+                self.assertFalse(sh.text.strip())
+                self.assertEqual(len(sh._element.xpath('.//a:custGeom//a:moveTo')), 2)
+                self.assertEqual(len(sh._element.xpath('.//a:custGeom//a:close')), 2)
+                self.assertEqual(len(sh._element.xpath('.//a:custGeom//a:lnTo')), 6)
+                self.assertFalse(sh._element.xpath('.//a:cubicBezTo | .//a:quadBezTo | .//a:arcTo'))
+                self.assertGreaterEqual(sh.left, 0)
+                self.assertGreaterEqual(sh.top, 0)
+                self.assertLessEqual(sh.left + sh.width, deck.prs.slide_width)
+                self.assertLessEqual(sh.top + sh.height, deck.prs.slide_height)
+                self.assertEqual(str(sh.fill.fore_color.rgb), '3D3D3D')
+            text_box = next(sh for sh in slide.shapes if sh.name == 'Quote text')
+            self.assertTrue(all(slide.shapes.index(sh) < slide.shapes.index(text_box)
+                                for sh in decorations))
 
     def test_real_rendered_line_endings_are_checked(self):
         xml = '''<html xmlns="http://www.w3.org/1999/xhtml"><body><doc>
