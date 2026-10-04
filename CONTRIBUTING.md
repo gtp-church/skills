@@ -14,6 +14,7 @@
 
 ```bash
 uv run --with python-pptx --with pyyaml python -m unittest discover -s tests -v
+uv run --with python-pptx python -m unittest discover -s skills/sermon-deck/tests -v
 ```
 
 Пример сборки и визуальная проверка (из корня репозитория):
